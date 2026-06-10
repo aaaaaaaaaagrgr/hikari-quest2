@@ -7,6 +7,11 @@ let BV = null; // バトル描画用ステート
 
 function aliveFoes(foes){ return foes.filter(f=>!f.dead); }
 
+// 戦闘終了後に戻すBGM（航海中なら海の曲）
+function fieldBgmName(){
+  return MAPS[curMap].world && getTile(curMap, hero.x, hero.y)==='~' ? 'sea' : MAPS[curMap].bgm;
+}
+
 function physDmg(atk, def){
   const base = atk/2 - def/4;
   if(base <= 0.5) return Math.random()<0.5 ? 0 : 1;
@@ -83,9 +88,38 @@ async function runBattle(group, opts={}){
       const a = await memberCommand(i, foes, opts, pi>0);
       if(a==='back'){ pi--; continue; }
       actions[i] = a;
+      if(a.t==='run') break;   // にげるを選んだら入力即終了（全員で逃げる）
       pi++;
     }
     BV.activeIdx = -1;
+
+    // --- にげる（パーティ全体の行動。選んだターンは他のメンバーは行動できない） ---
+    const runner = inputIdxs.find(i=>actions[i] && actions[i].t==='run');
+    if(runner!==undefined){
+      const m = G.party[runner];
+      let escaped = false;
+      if(opts.boss){
+        SFX.miss();
+        await msg('みんなは にげだした！', 'しかし まわりこまれてしまった！');
+      } else {
+        const avgAgi = aliveFoes(foes).reduce((s,f)=>s+f.agi,0) / aliveFoes(foes).length;
+        if(Math.random() < (mAgi(m)*2) / (mAgi(m)*2 + avgAgi)){
+          SFX.run();
+          await msg('みんなは にげだした！');
+          escaped = true;
+        } else {
+          SFX.miss();
+          await msg('みんなは にげだした！', 'しかし まわりこまれてしまった！');
+        }
+      }
+      if(escaped){
+        BV = null;
+        scene = 'field';
+        playBgm(fieldBgmName());
+        return 'ran';
+      }
+      actions.fill(null);   // 逃走失敗: このターンは敵だけが行動する
+    }
 
     // --- 行動順決定 ---
     const turns = [];
@@ -95,7 +129,6 @@ async function runBattle(group, opts={}){
     for(const f of aliveFoes(foes)) turns.push({foe:f, spd: f.agi*(0.7+Math.random()*0.6)});
     turns.sort((a,b)=>b.spd-a.spd);
 
-    let ran = false;
     for(const t of turns){
       if(aliveParty().length===0 || aliveFoes(foes).length===0) break;
       if(t.member!==undefined){
@@ -108,8 +141,7 @@ async function runBattle(group, opts={}){
           continue;
         }
         if(!actions[i]) continue;
-        const r = await memberAct(i, actions[i], foes, opts);
-        if(r==='ran'){ ran = true; break; }
+        await memberAct(i, actions[i], foes, opts);
       } else {
         const f = t.foe;
         if(f.dead) continue;
@@ -122,12 +154,6 @@ async function runBattle(group, opts={}){
       }
     }
 
-    if(ran){
-      BV = null;
-      scene = 'field';
-      playBgm(MAPS[curMap].world && getTile(curMap,hero.x,hero.y)==='~' ? 'sea' : MAPS[curMap].bgm);
-      return 'ran';
-    }
     if(aliveParty().length===0){
       await sleep(400);
       BV = null;
@@ -145,7 +171,7 @@ async function runBattle(group, opts={}){
       BV = null;
       scene = 'field';
       await gainExpGold(exp, gold);
-      playBgm(MAPS[curMap].world && getTile(curMap,hero.x,hero.y)==='~' ? 'sea' : MAPS[curMap].bgm);
+      playBgm(fieldBgmName());
       return 'win';
     }
   }
@@ -186,7 +212,7 @@ async function memberCommand(i, foes, opts, canBack){
   const m = G.party[i];
   for(;;){
     const menu = ['たたかう','じゅもん','ぼうぎょ','どうぐ'];
-    if(i===0) menu.push('にげる');
+    if(!canBack) menu.push('にげる');   // 最初に入力する生存メンバーだけ選べる
     const c = await choiceMenu(menu, {x:16, y:152, w:170, title:m.name, cancelable:true});
     if(c<0){
       if(canBack) return 'back';
@@ -441,21 +467,6 @@ async function memberAct(i, action, foes, opts){
         await msg(`${tgt.name}は いきかえった！`);
       } else await msg('しかし なにも おこらなかった。');
     }
-  }
-  else if(action.t==='run'){
-    if(opts.boss){
-      SFX.miss();
-      await msg('にげだした！', 'しかし まわりこまれてしまった！');
-      return;
-    }
-    const avgAgi = aliveFoes(foes).reduce((s,f)=>s+f.agi,0) / aliveFoes(foes).length;
-    if(Math.random() < (mAgi(m)*2) / (mAgi(m)*2 + avgAgi)){
-      SFX.run();
-      await msg('みんなは にげだした！');
-      return 'ran';
-    }
-    SFX.miss();
-    await msg('にげだした！', 'しかし まわりこまれてしまった！');
   }
 }
 
