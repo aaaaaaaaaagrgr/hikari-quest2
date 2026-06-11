@@ -1455,7 +1455,8 @@ function drawField(){
     drawWin(W/2-w2/2, 14, w2, 42);
     txt(name, W/2, 42, 19, '#fff', 'center');
   }
-  // ステータス窓は戦闘中のみ（フィールドではメニューの「つよさ」で確認）
+  // ステータス窓は戦闘中とメニューを開いている間だけ表示（通常の探索中は非表示）
+  if(menuStack.length>0) drawStatus();
   if(poisonFlash>0){
     ctx.fillStyle = `rgba(140,60,200,${poisonFlash/40})`;
     ctx.fillRect(0,0,W,H);
